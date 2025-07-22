@@ -176,10 +176,13 @@
         <button id="startBtn" class="control-button">測定開始</button>
         <button id="stopBtn" class="control-button" disabled>測定停止</button>
         
-        <div id="status" class="status">マイクへのアクセス許可が必要です</div>
+        <div id="status" class="status">「測定開始」をタップしてマイクへのアクセスを許可してください</div>
 
         <div class="warning">
-            ⚠️ この測定値は参考値です。正確な騒音測定には専用機器をご使用ください。
+            ⚠️ <strong>重要な注意事項</strong><br>
+            • HTTPS接続が必要です（URLがhttps://で始まること）<br>
+            • マイクアクセス許可が必要です<br>
+            • この測定値は参考値です。正確な騒音測定には専用機器をご使用ください。
         </div>
     </div>
 
@@ -211,17 +214,30 @@
                 try {
                     this.status.textContent = 'マイクにアクセス中...';
                     
-                    // マイクへのアクセス要求
+                    // ブラウザサポートチェック
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('このブラウザはマイクアクセスをサポートしていません');
+                    }
+
+                    // HTTPS チェック（開発環境のlocalhostは除く）
+                    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                        this.status.textContent = 'HTTPS接続が必要です。URLが https:// で始まることを確認してください。';
+                        return;
+                    }
+
+                    // マイクへのアクセス要求（よりシンプルな設定）
                     const stream = await navigator.mediaDevices.getUserMedia({ 
-                        audio: {
-                            echoCancellation: false,
-                            noiseSuppression: false,
-                            autoGainControl: false
-                        }
+                        audio: true
                     });
 
-                    // Audio Contextの設定
+                    // Audio Contextの設定（ユーザーアクション後に作成）
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // AudioContextがsuspendedの場合、resumeする
+                    if (this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                    }
+                    
                     this.analyser = this.audioContext.createAnalyser();
                     this.analyser.fftSize = 2048;
                     this.analyser.smoothingTimeConstant = 0.8;
@@ -240,7 +256,21 @@
                     this.updateMeter();
                 } catch (error) {
                     console.error('マイクアクセスエラー:', error);
-                    this.status.textContent = 'マイクにアクセスできませんでした';
+                    let errorMessage = 'マイクにアクセスできませんでした';
+                    
+                    if (error.name === 'NotAllowedError') {
+                        errorMessage = 'マイクの使用が拒否されました。ブラウザの設定でマイクアクセスを許可してください。';
+                    } else if (error.name === 'NotFoundError') {
+                        errorMessage = 'マイクが見つかりません。デバイスにマイクが接続されていることを確認してください。';
+                    } else if (error.name === 'NotSupportedError') {
+                        errorMessage = 'このブラウザまたはデバイスはマイクアクセスをサポートしていません。';
+                    } else if (error.message.includes('HTTPS')) {
+                        errorMessage = error.message;
+                    } else {
+                        errorMessage = `エラー: ${error.message || 'マイクアクセスに失敗しました'}`;
+                    }
+                    
+                    this.status.textContent = errorMessage;
                 }
             }
 
