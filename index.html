@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>騒音デシベル測定器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+            backdrop-filter: blur(10px);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .meter-container {
+            position: relative;
+            margin: 30px 0;
+        }
+
+        .decibel-display {
+            font-size: 48px;
+            font-weight: bold;
+            color: #333;
+            margin: 20px 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .decibel-unit {
+            font-size: 24px;
+            color: #666;
+            margin-left: 10px;
+        }
+
+        .level-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .level-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #FFC107, #FF9800, #F44336);
+            width: 0%;
+            transition: width 0.1s ease-out;
+            border-radius: 10px;
+        }
+
+        .level-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .control-button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .control-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .control-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            color: #666;
+            margin: 15px 0;
+            font-style: italic;
+        }
+
+        .noise-level-indicator {
+            padding: 10px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .quiet { background: #E8F5E8; color: #2E7D32; }
+        .normal { background: #FFF3E0; color: #F57C00; }
+        .loud { background: #FFEBEE; color: #C62828; }
+        .very-loud { background: #F3E5F5; color: #7B1FA2; }
+
+        .warning {
+            background: #FFEBEE;
+            color: #C62828;
+            padding: 10px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-size: 14px;
+            border-left: 4px solid #F44336;
+        }
+
+        @media (max-width: 480px) {
+            .container {
+                padding: 20px;
+            }
+            
+            .decibel-display {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔊 騒音デシベル測定器</h1>
+        
+        <div class="meter-container">
+            <div class="decibel-display">
+                <span id="decibelValue">--</span>
+                <span class="decibel-unit">dB</span>
+            </div>
+            
+            <div class="level-bar">
+                <div class="level-fill" id="levelFill"></div>
+            </div>
+            <div class="level-labels">
+                <span>0</span>
+                <span>30</span>
+                <span>60</span>
+                <span>90</span>
+                <span>120</span>
+            </div>
+        </div>
+
+        <div id="noiseLevelIndicator" class="noise-level-indicator">
+            音声レベルを測定中...
+        </div>
+
+        <button id="startBtn" class="control-button">測定開始</button>
+        <button id="stopBtn" class="control-button" disabled>測定停止</button>
+        
+        <div id="status" class="status">マイクへのアクセス許可が必要です</div>
+
+        <div class="warning">
+            ⚠️ この測定値は参考値です。正確な騒音測定には専用機器をご使用ください。
+        </div>
+    </div>
+
+    <script>
+        class NoiseMeter {
+            constructor() {
+                this.audioContext = null;
+                this.analyser = null;
+                this.microphone = null;
+                this.dataArray = null;
+                this.isRecording = false;
+                
+                this.decibelValue = document.getElementById('decibelValue');
+                this.levelFill = document.getElementById('levelFill');
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.status = document.getElementById('status');
+                this.noiseLevelIndicator = document.getElementById('noiseLevelIndicator');
+                
+                this.bindEvents();
+            }
+
+            bindEvents() {
+                this.startBtn.addEventListener('click', () => this.startMeasurement());
+                this.stopBtn.addEventListener('click', () => this.stopMeasurement());
+            }
+
+            async startMeasurement() {
+                try {
+                    this.status.textContent = 'マイクにアクセス中...';
+                    
+                    // マイクへのアクセス要求
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
+                        }
+                    });
+
+                    // Audio Contextの設定
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.analyser.fftSize = 2048;
+                    this.analyser.smoothingTimeConstant = 0.8;
+
+                    // マイクとAnalyserの接続
+                    this.microphone = this.audioContext.createMediaStreamSource(stream);
+                    this.microphone.connect(this.analyser);
+
+                    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+                    
+                    this.isRecording = true;
+                    this.startBtn.disabled = true;
+                    this.stopBtn.disabled = false;
+                    this.status.textContent = '測定中...';
+                    
+                    this.updateMeter();
+                } catch (error) {
+                    console.error('マイクアクセスエラー:', error);
+                    this.status.textContent = 'マイクにアクセスできませんでした';
+                }
+            }
+
+            stopMeasurement() {
+                this.isRecording = false;
+                
+                if (this.audioContext) {
+                    this.audioContext.close();
+                }
+                
+                this.startBtn.disabled = false;
+                this.stopBtn.disabled = true;
+                this.status.textContent = '測定停止';
+                this.decibelValue.textContent = '--';
+                this.levelFill.style.width = '0%';
+                this.noiseLevelIndicator.textContent = '測定停止中';
+                this.noiseLevelIndicator.className = 'noise-level-indicator';
+            }
+
+            updateMeter() {
+                if (!this.isRecording) return;
+
+                // 音声データの取得
+                this.analyser.getByteFrequencyData(this.dataArray);
+                
+                // RMS（実効値）の計算
+                let sum = 0;
+                for (let i = 0; i < this.dataArray.length; i++) {
+                    sum += this.dataArray[i] * this.dataArray[i];
+                }
+                const rms = Math.sqrt(sum / this.dataArray.length);
+                
+                // デシベルの計算（参考値）
+                let decibel = 20 * Math.log10(rms / 255) + 94;
+                if (!isFinite(decibel) || decibel < 0) {
+                    decibel = 0;
+                }
+                
+                // 表示の更新
+                this.decibelValue.textContent = Math.round(decibel);
+                
+                // レベルバーの更新（0-120dBの範囲）
+                const percentage = Math.min((decibel / 120) * 100, 100);
+                this.levelFill.style.width = percentage + '%';
+                
+                // 騒音レベルの判定と表示
+                this.updateNoiseLevel(decibel);
+                
+                requestAnimationFrame(() => this.updateMeter());
+            }
+
+            updateNoiseLevel(decibel) {
+                let level, className, description;
+                
+                if (decibel < 40) {
+                    level = '静か';
+                    className = 'quiet';
+                    description = '図書館・深夜の住宅地レベル';
+                } else if (decibel < 60) {
+                    level = '普通';
+                    className = 'normal'; 
+                    description = '日常会話・オフィスレベル';
+                } else if (decibel < 80) {
+                    level = 'やや騒がしい';
+                    className = 'loud';
+                    description = '交通量の多い道路レベル';
+                } else {
+                    level = '非常に騒がしい';
+                    className = 'very-loud';
+                    description = '工事現場・電車通過レベル';
+                }
+                
+                this.noiseLevelIndicator.textContent = `${level} - ${description}`;
+                this.noiseLevelIndicator.className = `noise-level-indicator ${className}`;
+            }
+        }
+
+        // アプリケーションの初期化
+        window.addEventListener('DOMContentLoaded', () => {
+            new NoiseMeter();
+        });
+
+        // ページ離脱時のクリーンアップ
+        window.addEventListener('beforeunload', () => {
+            if (window.noiseMeter && window.noiseMeter.isRecording) {
+                window.noiseMeter.stopMeasurement();
+            }
+        });
+    </script>
+</body>
+</html>
